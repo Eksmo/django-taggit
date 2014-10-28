@@ -6,6 +6,7 @@ import django
 from django.contrib.contenttypes.models import ContentType
 from django.core import serializers
 from django.core.exceptions import ImproperlyConfigured, ValidationError
+from django.db import connection
 from django.test import TestCase, TransactionTestCase
 from django.utils.encoding import force_text
 
@@ -359,7 +360,7 @@ class TaggableManagerTestCase(BaseTaggingTestCase):
         apple.tags.add('1', '2')
         orange = self.food_model.objects.create(name="orange")
         orange.tags.add('2', '4')
-        with self.assertNumQueries(1):
+        with self.assertNumQueries(2):
             l = list(self.food_model.objects.prefetch_related('tags').all())
         with self.assertNumQueries(0):
             foods = dict((f.name, set(t.name for t in f.tags.all())) for f in l)
@@ -367,6 +368,15 @@ class TaggableManagerTestCase(BaseTaggingTestCase):
                 'orange': set(['2', '4']),
                 'apple': set(['1', '2'])
             })
+
+    def test_prefetch_no_extra_join(self):
+        apple = self.food_model.objects.create(name="apple")
+        apple.tags.add('1', '2')
+        with self.assertNumQueries(2):
+            l = list(self.food_model.objects.prefetch_related('tags').all())
+            join_clause = 'INNER JOIN "%s"' % self.taggeditem_model._meta.db_table
+            self.assertEqual(connection.queries[-1]['sql'].count(join_clause), 1, connection.queries[-2:])
+
 
 class TaggableManagerDirectTestCase(TaggableManagerTestCase):
     food_model = DirectFood
